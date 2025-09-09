@@ -3,7 +3,7 @@ import * as cheerio from 'cheerio';
 import { supabaseAdmin } from '~/utils/supabase.server';
 import { randomId } from '~/utils/id';
 import { Form, useActionData, useNavigation,  type ActionFunctionArgs } from 'react-router';
-import { json } from '@remix-run/node';
+import { json } from '@remix-run/node'; // react router v7 doesn't have json??
 
 export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
@@ -14,7 +14,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (!html.trim()) return json({ error: 'No HTML provided' }, { status: 400 });
 
-  const $ = cheerio.load(html, { decodeEntities: false });
+  const $ = cheerio.load(html);
 
   // collect unique http(s) anchor hrefs
   const hrefs = new Set<string>();
@@ -69,7 +69,7 @@ export async function action({ request }: ActionFunctionArgs) {
     if (short) $(el).attr('href', short);
   });
 
-  const outHtml = $.html({ decodeEntities: false });
+  const outHtml = $.html();
   const bytesOut = enc.encode(outHtml).length;
 
   // update job stats
@@ -83,8 +83,10 @@ export async function action({ request }: ActionFunctionArgs) {
   return json({ filename, bytesIn, bytesOut, saved, links, outHtml });
 }
 
+type ActionData = Awaited<ReturnType<typeof action>>;
+
 export default function Index() {
-  const data = useActionData<typeof action>();
+  const data = useActionData<ActionData>();
   const nav = useNavigation();
 
   return (
