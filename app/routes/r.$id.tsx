@@ -1,4 +1,3 @@
-// app/routes/r.$id.tsx
 import type { LoaderFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { supabaseAdmin } from "~/utils/supabase.server";

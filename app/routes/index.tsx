@@ -1,4 +1,3 @@
-// app/routes/_index.tsx
 import * as cheerio from 'cheerio';
 import { supabaseAdmin } from '~/utils/supabase.server';
 import { randomId } from '~/utils/id';
@@ -51,6 +50,8 @@ export async function action({ request }: ActionFunctionArgs) {
       if (!error) break;
       id = randomId(8);
     }
+
+    console.log('process.env.SHORT_DOMAIN', process.env.SHORT_DOMAIN);
     const short = `${process.env.SHORT_DOMAIN}/r/${id}`;
     map.set(original, short);
 
@@ -88,13 +89,16 @@ export default function Index() {
   const data = useActionData<ActionData>();
   const nav = useNavigation();
 
+  console.log('data', data);
+  console.log('nav', nav);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-2xl font-semibold">Email Link Shortener</h1>
         <p className="text-gray-600 mt-1">Shrink links to avoid Gmail clipping and improve deliverability.</p>
 
-        <Form method="post" encType="multipart/form-data" className="mt-6 space-y-4">
+        <Form method="post" encType="multipart/form-data" replace={false} className="mt-6 space-y-4">
           <div className="bg-white rounded-xl p-4 shadow">
             <label className="block text-sm font-medium text-gray-700">Upload HTML file</label>
             <input name="html" type="file" accept=".html,.htm" className="mt-2 block w-full file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-indigo-700 hover:file:bg-indigo-100" />
