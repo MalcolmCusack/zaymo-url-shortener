@@ -41,6 +41,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (jobErr) return { error: jobErr.message };
 
+  // determine the absolute short domain. Prefer env, fallback to current request origin.
+  // TODO: this is a hack to get the short domain. It's not ideal because it's not a static domain.
+  const reqOrigin = new URL(request.url).origin;
+  let shortDomain = (process.env.SHORT_DOMAIN || reqOrigin).trim();
+  if (!/^https?:\/\//i.test(shortDomain)) shortDomain = `https://${shortDomain}`; 
+  shortDomain = shortDomain.replace(/\/+$/, '');
+
   // create links + mapping
   const map = new Map<string, string>();
   for (const original of hrefs) {
@@ -52,7 +59,7 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     console.log('process.env.SHORT_DOMAIN', process.env.SHORT_DOMAIN);
-    const short = `${process.env.SHORT_DOMAIN}/r/${id}`;
+    const short = `${shortDomain}/r/${id}`;
     map.set(original, short);
 
     await supa.from('html_links').insert({
