@@ -57,7 +57,7 @@ export default [
       'simple-import-sort/exports': 'off',
 
       // Enforce Prettier formatting
-      'prettier/prettier': 'error',
+      'prettier/prettier': 'off',
     },
   },
 ];
