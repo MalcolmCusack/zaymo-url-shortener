@@ -31,18 +31,6 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Optional: domain used when generating short links. Falls back to request origin.
 SHORT_DOMAIN=https://your-short-domain.com
-
-# (Optional, for future TODOs)
-# Resend/Mailgun for sending processed emails
-# RESEND_API_KEY=...
-# MAILGUN_API_KEY=...
-# MAILGUN_DOMAIN=...
-
-# Vercel KV or Upstash Redis for edge cache
-# VERCEL_KV_REST_API_URL=...
-# VERCEL_KV_REST_API_TOKEN=...
-# UPSTASH_REDIS_REST_URL=...
-# UPSTASH_REDIS_REST_TOKEN=...
 ```
 
 ### 3) Database
@@ -110,10 +98,9 @@ Auth: Supabase Auth; see `app/root.tsx` and `app/utils/supabase.server.ts`.
 - Show per‑link errors (if an insert fails) and retry UI.
 - Preserve `mailto:`, `tel:`, and templating tokens (`{{…}}`, `{% unsubscribe_link %}`) untouched.
 
-### “Send Email” capability (optional but nice)
+### “Send Email” capability
 - Wire `sendProcessedEmail(html, to)` using Resend (or Mailgun). Add a small form (To, Subject).
 - Pre‑fill subject: “Shortened email ready”; body = processed HTML.
-- Include your repo link and live demo URL inside that processed HTML, proving the shortener was used.
 
 ### Lightweight analytics & admin
 
@@ -134,7 +121,15 @@ Goal: eliminate DB hop on every `/r/:id` request.
 - On `/r/:id` loader:
   1. get from KV → if found, redirect.
   2. else fallback to Supabase, then populate KV.
-- (Optional) Move to a Remix/React Router edge runtime for the redirect route.
+
+### Security & abuse
+- Size limits on uploads (e.g., 2–5 MB).
+- Basic rate limiting on the action (IP-based or user-based).
+
+### Nice to have extras
+- Rewrite URLs in “hidden” places (e.g., data-href)
+- QR code generator per short link (PNG in public/qr/:id.png)
+- Organization/workspace model with usage quotas $$$
 
 ## Scripts
 
