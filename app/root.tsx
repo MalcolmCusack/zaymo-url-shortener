@@ -7,9 +7,23 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  Link,
+  useLoaderData,
+  type LoaderFunctionArgs,
 } from 'react-router';
 
+import { supabaseServer } from '~/utils/supabase.server';
 import type { Route } from './+types/root';
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const supa = supabaseServer(request, new Headers());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  return {
+    user: user ? { id: user.id, email: user.email } : null,
+  } as const;
+}
 
 export const links: Route.LinksFunction = () => [
   { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -43,7 +57,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  const data = useLoaderData<{ user: { id: string; email: string | null } | null }>();
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="border-b bg-white">
+        <div className="container-narrow flex items-center justify-between py-3">
+          <Link to="/" className="text-lg font-semibold">Email Link Shortener</Link>
+          <nav className="flex items-center gap-4 text-sm">
+            {data.user ? (
+              <>
+                <Link to="/links" className="text-gray-700 hover:text-gray-900">Links</Link>
+                <span className="text-gray-500 hidden sm:inline">{data.user.email}</span>
+                <Link to="/logout" className="text-gray-700 hover:text-gray-900">Logout</Link>
+              </>
+            ) : (
+              <Link to="/login" className="text-gray-700 hover:text-gray-900">Login</Link>
+            )}
+          </nav>
+        </div>
+      </header>
+      <main>
+        <Outlet />
+      </main>
+    </div>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
-import { supabaseAdmin } from '~/utils/supabase.server';
+import { supabaseServer } from '~/utils/supabase.server';
 import { randomId } from '~/utils/id';
-import { Form, useActionData, useNavigation,  type ActionFunctionArgs } from 'react-router';
+import { Form, useActionData, useLoaderData, useNavigation,  type ActionFunctionArgs } from 'react-router';
 import HtmlUploader from '~/components/HtmlUploader';
 import CopyButton from '~/components/CopyButton';
 
@@ -24,8 +24,9 @@ export async function action({ request }: ActionFunctionArgs) {
     if (/^https?:\/\//i.test(href)) hrefs.add(href);
   });
 
-  const supa = supabaseAdmin();
-
+  const headers = new Headers();
+  const supa = supabaseServer(request, headers);
+  const { data: userData } = await supa.auth.getUser();
   // create job
   const enc = new TextEncoder();
   const bytesIn = enc.encode(html).length;
@@ -37,7 +38,7 @@ export async function action({ request }: ActionFunctionArgs) {
       bytes_in: bytesIn,
       bytes_out: 0,
       link_count: hrefs.size,
-      created_by: null, // set from auth if you add user sessions
+      created_by: userData.user?.id ?? null,
     })
     .select('*')
     .single();
@@ -56,7 +57,7 @@ export async function action({ request }: ActionFunctionArgs) {
   for (const original of hrefs) {
     let id = randomId(8);
     for (let i = 0; i < 3; i++) {
-      const { error } = await supa.from('links').insert({ id, original });
+      const { error } = await supa.from('links').insert({ id, original, created_by: userData.user?.id ?? null });
       if (!error) break;
       id = randomId(8);
     }
@@ -94,9 +95,29 @@ export async function action({ request }: ActionFunctionArgs) {
 
 type ActionData = Awaited<ReturnType<typeof action>>;
 
+export async function loader({ request }: { request: Request }) {
+  const headers = new Headers();
+  const supa = supabaseServer(request, headers);
+  const { data: userData } = await supa.auth.getUser();
+  let recent: { id: number; filename: string; created_at: string; link_count: number; bytes_in: number; bytes_out: number }[] = [];
+  if (userData.user) {
+    const { data, error } = await supa
+      .from('html_jobs')
+      .select('id, filename, created_at, link_count, bytes_in, bytes_out')
+      .eq('created_by', userData.user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (!error && data) recent = data as unknown as typeof recent;
+  }
+  return new Response(JSON.stringify({ recent }), { headers: { ...Object.fromEntries(headers), 'content-type': 'application/json' } });
+}
+
+type LoaderData = { recent: { id: number; filename: string; created_at: string; link_count: number; bytes_in: number; bytes_out: number }[] };
+
 export default function Index() {
   const data = useActionData<ActionData>();
   const nav = useNavigation();
+  const { recent } = useLoaderData<LoaderData>();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -160,6 +181,29 @@ export default function Index() {
             </div>
           </div>
         )}
+
+        {recent?.length ? (
+          <div className="card mt-6">
+            <h2 className="card-title">Recent Jobs</h2>
+            <ul className="text-sm divide-y">
+              {recent.map((j) => {
+                const saved = j.bytes_in - j.bytes_out;
+                return (
+                  <li key={j.id} className="py-2 flex items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{j.filename}</p>
+                      <p className="text-gray-500">{new Date(j.created_at).toLocaleString()}</p>
+                    </div>
+                    <div className="text-right whitespace-nowrap ml-4">
+                      <p className="text-gray-700">{j.link_count} links</p>
+                      <p className="text-gray-500">{(saved/1024).toFixed(1)} KB saved</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </div>
   );
