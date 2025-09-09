@@ -14,3 +14,19 @@ body {
     color-scheme: dark;
   }
 }
+
+.container-narrow {
+  @apply mx-auto max-w-3xl p-6;
+}
+
+.card {
+  @apply bg-white rounded-xl p-4 shadow;
+}
+
+.card-title {
+  @apply font-semibold mb-2;
+}
+
+.section-gap {
+  @apply mt-8 space-y-4;
+}

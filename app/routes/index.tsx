@@ -2,13 +2,16 @@ import * as cheerio from 'cheerio';
 import { supabaseAdmin } from '~/utils/supabase.server';
 import { randomId } from '~/utils/id';
 import { Form, useActionData, useNavigation,  type ActionFunctionArgs } from 'react-router';
+import HtmlUploader from '~/components/HtmlUploader';
+import CopyButton from '~/components/CopyButton';
 
 export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
-    const file = form.get('html') as File | null;
+  const file = form.get('html') as File | null;
   const pasted = form.get('pasted') as string | null;
-  const filename = (file?.name ?? 'pasted.html').slice(0, 160);
-  const html = file ? await file.text() : (pasted || '');
+  const hasFile = file && file.size > 0;
+  const filename = ((hasFile ? file!.name : 'pasted.html') || 'pasted.html').slice(0, 160);
+  const html = hasFile ? await file!.text() : (pasted || '');
 
   if (!html.trim()) return { error: 'No HTML provided' };
 
@@ -58,7 +61,6 @@ export async function action({ request }: ActionFunctionArgs) {
       id = randomId(8);
     }
 
-    console.log('process.env.SHORT_DOMAIN', process.env.SHORT_DOMAIN);
     const short = `${shortDomain}/r/${id}`;
     map.set(original, short);
 
@@ -96,32 +98,25 @@ export default function Index() {
   const data = useActionData<ActionData>();
   const nav = useNavigation();
 
-  console.log('data', data);
-  console.log('nav', nav);
-
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-3xl p-6">
+      <div className="container-narrow">
         <h1 className="text-2xl font-semibold">Email Link Shortener</h1>
         <p className="text-gray-600 mt-1">Shrink links to avoid Gmail clipping and improve deliverability.</p>
 
         <Form method="post" encType="multipart/form-data" replace={false} className="mt-6 space-y-4">
-          <div className="bg-white rounded-xl p-4 shadow">
-            <label className="block text-sm font-medium text-gray-700">Upload HTML file</label>
-            <input name="html" type="file" accept=".html,.htm" className="mt-2 block w-full file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-indigo-700 hover:file:bg-indigo-100" />
-            <div className="my-4 text-center text-gray-400">— or —</div>
-            <label className="block text-sm font-medium text-gray-700">Paste HTML</label>
-            <textarea name="pasted" rows={10} className="mt-2 w-full rounded-lg border p-3 font-mono text-sm" placeholder="Paste your HTML here..." />
-          </div>
+          <HtmlUploader nameFile="html" nameTextarea="pasted" />
 
-          <button disabled={nav.state !== 'idle'} className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700">
-            {nav.state === 'submitting' ? 'Shortening…' : 'Shorten links'}
-          </button>
+          <div className="flex justify-end pt-1">
+            <button disabled={nav.state !== 'idle'} className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 cursor-pointer">
+              {nav.state === 'submitting' ? 'Shortening…' : 'Shorten links'}
+            </button>
+          </div>
         </Form>
 
         {data?.outHtml && (
-          <div className="mt-8 space-y-4">
-            <div className="flex items-center justify-between rounded-xl bg-white p-4 shadow">
+          <div className="section-gap">
+            <div className="flex items-center justify-between card">
               <div>
                 <p className="text-sm text-gray-500">Size</p>
                 <p className="text-lg font-medium">
@@ -134,17 +129,20 @@ export default function Index() {
                    "Looks good"}
                 </p>
               </div>
-              <a
-                href={"data:text/html;charset=utf-8," + encodeURIComponent(data.outHtml)}
-                download={data.filename?.replace(/\.html?$/i,"") + ".shortened.html"}
-                className="rounded bg-gray-800 px-3 py-2 text-white"
-              >
-                Download HTML
-              </a>
+              <div className="flex items-center gap-2">
+                <CopyButton html={data.outHtml} />
+                <a
+                  href={"data:text/html;charset=utf-8," + encodeURIComponent(data.outHtml)}
+                  download={data.filename?.replace(/\.html?$/i,"") + ".shortened.html"}
+                  className="rounded bg-gray-800 px-3 py-2 text-white"
+                >
+                  Download HTML
+                </a>
+              </div>
             </div>
 
-            <div className="bg-white rounded-xl p-4 shadow">
-              <h2 className="font-semibold mb-2">Mapping</h2>
+            <div className="card">
+              <h2 className="card-title">Mapping</h2>
               <ul className="text-sm space-y-2">
                 {data.links.map((l, i) => (
                   <li key={i} className="break-all">
@@ -156,8 +154,8 @@ export default function Index() {
               </ul>
             </div>
 
-            <div className="bg-white rounded-xl p-4 shadow">
-              <h2 className="font-semibold mb-2">Preview</h2>
+            <div className="card">
+              <h2 className="card-title">Preview</h2>
               <iframe className="w-full h-[600px] border rounded" srcDoc={data.outHtml} />
             </div>
           </div>
