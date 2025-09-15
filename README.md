@@ -31,6 +31,9 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Optional: domain used when generating short links. Falls back to request origin.
 SHORT_DOMAIN=https://your-short-domain.com
+
+# Maximum HTML size accepted (in bytes). Default: 5242880 (5 MiB)
+MAX_HTML_BYTES=5 * 1024 * 1024
 ```
 
 ### 3) Database
@@ -94,24 +97,14 @@ Auth: Supabase Auth; see `app/root.tsx` and `app/utils/supabase.server.ts`.
 
 ## Roadmap / TODOs
 
-### Error handling
-- Show per‑link errors (if an insert fails) and retry UI.
-- Preserve `mailto:`, `tel:`, and templating tokens (`{{…}}`, `{% unsubscribe_link %}`) untouched.
-
 ### “Send Email” capability
 - Wire `sendProcessedEmail(html, to)` using Resend (or Mailgun). Add a small form (To, Subject).
 - Pre‑fill subject: “Shortened email ready”; body = processed HTML.
 
-### Lightweight analytics & admin
-
-#### Mini analytics screen
-- Route: `/links/:id` → show last 100 clicks (ts, referrer, UA), and a sparkline (client‑side).
-- Aggregate counts: `select link_id, count(*) from click_events group by 1;`
-- Add CSV export (simple Content‑Disposition endpoint).
-
-#### Admin guardrails
-- Domain allowlist (e.g., only shorten http(s) targets from an allowlist or all except a blocklist).
+### Admin/Abuse/Security guardrails
+- Domain allowlist (e.g., only shorten http(s) except a blocklist).
 - Per‑day link creation limits (e.g., 5,000/user/day).
+- Basic rate limiting on the action (IP-based or user-based).
 
 ### Edge‑optimize redirects (scale path)
 
@@ -122,14 +115,10 @@ Goal: eliminate DB hop on every `/r/:id` request.
   1. get from KV → if found, redirect.
   2. else fallback to Supabase, then populate KV.
 
-### Security & abuse
-- Size limits on uploads (e.g., 2–5 MB).
-- Basic rate limiting on the action (IP-based or user-based).
-
 ### Nice to have extras
-- Rewrite URLs in “hidden” places (e.g., data-href)
 - QR code generator per short link (PNG in public/qr/:id.png)
 - Organization/workspace model with usage quotas $$$
+- Dark/Light mode
 
 ## Scripts
 

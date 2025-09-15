@@ -5,6 +5,8 @@ import { Form, useActionData, useLoaderData, useNavigation,  type ActionFunction
 import HtmlUploader from '~/components/HtmlUploader';
 import CopyButton from '~/components/CopyButton';
 
+const MAX_HTML_BYTES = Number(process.env.MAX_HTML_BYTES || String(5 * 1024 * 1024)); // default 5 MiB
+
 type LoaderData = { 
   recent: { 
     id: number; 
@@ -21,104 +23,159 @@ export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
   const file = form.get('html') as File | null;
   const pasted = form.get('pasted') as string | null;
+  const retryOriginal = form.get('retryOriginal') as string | null;
+  const currentHtml = form.get('currentHtml') as string | null;
+  const incomingFilename = form.get('filename') as string | null;
+  const existingJobId = form.get('jobId') as string | null;
 
-  // check if there is a file or pasted html
+  // retry mode uses currentHtml and a single original to attempt again
+  const isRetry = !!retryOriginal;
   const hasFile = file && file.size > 0;
-  // get the filename from the file or pasted html, max 160 characters
-  const filename = ((hasFile ? file!.name : 'pasted.html') || 'pasted.html').slice(0, 160);
-  const html = hasFile ? await file!.text() : (pasted || '');
+  const filename = (
+    (isRetry ? (incomingFilename || 'pasted.html') : (hasFile ? file!.name : 'pasted.html')) || 'pasted.html'
+  ).slice(0, 160);
+  // early guard: uploaded file byte limit (avoid reading huge file into memory)
+  if (!isRetry && hasFile && file!.size > MAX_HTML_BYTES) {
+    return { error: `Upload too large. Max ${Math.floor(MAX_HTML_BYTES / (1024 * 1024))} MiB.` };
+  }
+  const html = isRetry ? (currentHtml || '') : (hasFile ? await file!.text() : (pasted || ''));
 
   if (!html.trim()) return { error: 'No HTML provided' };
 
-  // load the html into cheerio (parse/manipulate the html)
-  const $ = cheerio.load(html);
-
-  // collect unique http(s) anchor hrefs (links)
-  const hrefs = new Set<string>();
-  $('a[href]').each((_i, el) => {
-    const href = String($(el).attr('href') || '');
-    if (/^https?:\/\//i.test(href)) hrefs.add(href);
-  });
-
+  // prepare helpers
   const headers = new Headers();
-  // get supabase user if signed in
   const supa = supabaseServer(request, headers);
   const { data: userData } = await supa.auth.getUser();
-  // create job
   const enc = new TextEncoder();
-  const bytesIn = enc.encode(html).length;
 
-  const { data: job, error: jobErr } = await supa
-    .from('html_jobs')
-    .insert({
-      filename,
-      bytes_in: bytesIn,
-      bytes_out: 0,
-      link_count: hrefs.size,
-      created_by: userData?.user?.id ?? null,
-    })
-    .select('*')
-    .single();
-
-  if (jobErr) return { error: jobErr.message };
+  // upload size guardrail (use file size if present, else encoded bytes)
+  const uploadBytes = (file && file.size > 0) ? file.size : enc.encode(html).length;
+  if (uploadBytes > MAX_HTML_BYTES) {
+    return { error: `Upload too large. Max ${Math.floor(MAX_HTML_BYTES / (1024 * 1024))} MiB.` };
+  }
 
   // determine the absolute short domain. Prefer env, fallback to current request origin.
-  // TODO: this is a hack to get the short domain. It's not ideal because it's not a static domain.
   const reqOrigin = new URL(request.url).origin;
   let shortDomain = (process.env.SHORT_DOMAIN || reqOrigin).trim();
-
-  // if the short domain doesn't start with https://, add it
-  if (!/^https?:\/\//i.test(shortDomain)) shortDomain = `https://${shortDomain}`; 
+  if (!/^https?:\/\//i.test(shortDomain)) shortDomain = `https://${shortDomain}`;
   shortDomain = shortDomain.replace(/\/+$/, '');
 
-  // create links + mapping for each link
+  const isAlreadyShort = (href: string) => href.toLowerCase().startsWith(`${shortDomain}/r/`.toLowerCase());
+  const hasTemplateToken = (href: string) => /\{\{[\s\S]*?\}\}/.test(href) || /\{%\s*unsubscribe_link\s*%\}/i.test(href);
+  const shouldProcess = (href: string) => {
+    if (!/^https?:\/\//i.test(href)) return false; // only http(s)
+    if (isAlreadyShort(href)) return false;
+    if (hasTemplateToken(href)) return false;
+    return true;
+  };
+
+  // parse HTML
+  const $ = cheerio.load(html);
+
+  // collect unique candidates
+  const allHrefs = new Set<string>();
+  // visible links (anchors)
+  $('a[href]').each((_i, el) => {
+    const href = String($(el).attr('href') || '');
+    if (shouldProcess(href)) allHrefs.add(href);
+  });
+  // hidden links in data attributes
+  const dataUrlAttrs = ['data-href', 'data-url', 'data-link'];
+  for (const attr of dataUrlAttrs) {
+    $(`[${attr}]`).each((_i, el) => {
+      const href = String($(el).attr(attr) || '');
+      if (shouldProcess(href)) allHrefs.add(href);
+    });
+  }
+
+  // in retry mode, restrict to the one we are retrying
+  const targets = new Set<string>();
+  if (isRetry && retryOriginal) {
+    if (allHrefs.has(retryOriginal)) targets.add(retryOriginal);
+    else targets.add(retryOriginal); // even if not found, attempt insert so we can show error/success
+  } else {
+    for (const h of allHrefs) targets.add(h);
+  }
+
+  // create or reuse job
+  const bytesIn = enc.encode(html).length;
+  let jobId = existingJobId || '';
+  if (!jobId) {
+    const { data: job, error: jobErr } = await supa
+      .from('html_jobs')
+      .insert({
+        filename,
+        bytes_in: bytesIn,
+        bytes_out: 0,
+        link_count: targets.size,
+        created_by: userData?.user?.id ?? null,
+      })
+      .select('*')
+      .single();
+
+    if (jobErr) return { error: jobErr.message };
+    jobId = job!.id as unknown as string;
+  }
+
+  // create links + mapping for each link, record per-link errors
   const map = new Map<string, string>();
-  for (const original of hrefs) {
+  const results: { original: string; short?: string; error?: string }[] = [];
+  for (const original of targets) {
     let id = randomId(8);
-    // try to insert the link 3 times if it fails
+    let insertError: string | null = null;
     for (let i = 0; i < 3; i++) {
-      const { error } = await supa.from('links').insert({ id, original, created_by: userData.user?.id ?? null });
-      if (!error) break;
+      const { error } = await supa
+        .from('links')
+        .insert({ id, original, created_by: userData.user?.id ?? null });
+      if (!error) {
+        insertError = null;
+        break;
+      }
+      insertError = error.message;
       id = randomId(8);
     }
 
-    // create the short link
+    if (insertError) {
+      results.push({ original, error: insertError });
+      continue;
+    }
+
     const short = `${shortDomain}/r/${id}`;
     map.set(original, short);
-
-    // create the mapping from the job to the link
-    await supa.from('html_links').insert({
-      job_id: job.id,
-      link_id: id,
-      original,
-    });
+    results.push({ original, short });
+    // best-effort job→link mapping
+    try {
+      await supa.from('html_links').insert({ job_id: jobId, link_id: id, original });
+    } catch {
+      // ignore mapping errors in response; they won't block rewriting
+    }
   }
 
   // rewrite DOM (replace the hrefs with the short links)
   $('a[href]').each((_i, el) => {
     const href = String($(el).attr('href') || '');
-    const short = map.get(href);
-    if (short) $(el).attr('href', short);
+    const replacement = map.get(href);
+    if (replacement) $(el).attr('href', replacement);
   });
+  for (const attr of ['data-href', 'data-url', 'data-link']) {
+    $(`[${attr}]`).each((_i, el) => {
+      const href = String($(el).attr(attr) || '');
+      const replacement = map.get(href);
+      if (replacement) $(el).attr(attr, replacement);
+    });
+  }
 
-  // get the html of the document
   const outHtml = $.html();
-  // get the bytes of the html
   const bytesOut = enc.encode(outHtml).length;
 
   // update job stats (bytes_out)
-  await supa.from('html_jobs').update({
-      bytes_out: bytesOut,
-      created_by: userData?.user?.id ?? null,
-  }).eq('id', job.id);
+  await supa
+    .from('html_jobs')
+    .update({ bytes_out: bytesOut, created_by: userData?.user?.id ?? null })
+    .eq('id', jobId);
 
-  // create the links array
-  const links = Array.from(map.entries()).map(([original, short]) => ({ original, short }));
-  // calculate the saved bytes
   const saved = bytesIn - bytesOut;
-
-  // return the data
-  return { filename, bytesIn, bytesOut, saved, links, outHtml };
+  return { filename, jobId, bytesIn, bytesOut, saved, links: results, outHtml };
 }
 
 type ActionData = Awaited<ReturnType<typeof action>>;
@@ -156,6 +213,12 @@ export default function Index() {
       <div className="container-narrow">
         <h1 className="text-2xl font-semibold">Email Link Shortener</h1>
         <p className="text-gray-600 mt-1">Shrink links to avoid Gmail clipping and improve deliverability.</p>
+
+        {data && typeof (data as { error?: unknown }).error === 'string' ? (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 text-red-800 p-3">
+            {(data as { error?: string }).error}
+          </div>
+        ) : null}
 
         <Form method="post" encType="multipart/form-data" replace={false} className="mt-6 space-y-4">
           <HtmlUploader nameFile="html" nameTextarea="pasted" />
@@ -197,11 +260,31 @@ export default function Index() {
             <div className="card">
               <h2 className="card-title">Mapping</h2>
               <ul className="text-sm space-y-2">
-                {data.links.map((l, i) => (
-                  <li key={i} className="break-all">
-                    <span className="text-gray-500">{l.original}</span>
-                    <span className="mx-2">→</span>
-                    <span className="text-indigo-700">{l.short}</span>
+                {data.links.map((l: { original: string; short?: string; error?: string }, i: number) => (
+                  <li key={i} className="break-all flex flex-col gap-1">
+                    <div>
+                      <span className="text-gray-500">{l.original}</span>
+                      <span className="mx-2">→</span>
+                      {l.short ? (
+                        <span className="text-indigo-700">{l.short}</span>
+                      ) : (
+                        <span className="text-red-600">{l.error || 'Failed to create short link'}</span>
+                      )}
+                    </div>
+                    {!l.short ? (
+                      <Form method="post" replace={false} className="flex items-center gap-2">
+                        <input type="hidden" name="retryOriginal" value={l.original} />
+                        <input type="hidden" name="currentHtml" value={data.outHtml} />
+                        <input type="hidden" name="jobId" value={data.jobId} />
+                        <input type="hidden" name="filename" value={data.filename} />
+                        <button
+                          disabled={nav.state !== 'idle'}
+                          className="inline-flex items-center rounded bg-red-600/10 px-2 py-1 text-red-700 hover:bg-red-600/20"
+                        >
+                          {nav.state === 'submitting' ? 'Retrying…' : 'Retry'}
+                        </button>
+                      </Form>
+                    ) : null}
                   </li>
                 ))}
               </ul>
