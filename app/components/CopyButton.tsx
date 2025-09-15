@@ -3,6 +3,7 @@ import { useState } from 'react';
 export default function CopyButton({ html }: { html: string }) {
   const [copied, setCopied] = useState(false);
 
+  // write html to clipboard
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(html);

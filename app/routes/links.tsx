@@ -10,6 +10,7 @@ type LoaderData =
       hasMore: boolean;
     };
 
+// triggered when the page is loaded
 export async function loader({ request }: LoaderFunctionArgs) {
   const supa = supabaseServer(request, new Headers());
   const {
@@ -29,11 +30,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
     .select('id')
     .eq('created_by', user.id);
   if (jobsErr) throw new Response(jobsErr.message, { status: 500 });
+
   const jobIds = (jobs || []).map((j) => j.id);
   if (jobIds.length === 0) {
     return { links: [], page, pageSize, hasMore: false } satisfies LoaderData;
   }
 
+  // get the links
   const { data, error, count } = await supa
     .from('html_links')
     .select('link_id, original, job_id, created_at', { count: 'exact' })
@@ -41,8 +44,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
     .order('created_at', { ascending: false })
     .range(from, to);
 
-    if (error) throw new Response(error.message, { status: 500 });
+  if (error) throw new Response(error.message, { status: 500 });
 
+  // create the links array
   const links = (data || []).map((r) => ({ id: r.link_id as unknown as string, original: r.original as string, created_at: r.created_at as string }));
   const hasMore = typeof count === 'number' ? to + 1 < count : links.length === pageSize;
 

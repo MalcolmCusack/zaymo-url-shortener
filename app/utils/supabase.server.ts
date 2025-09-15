@@ -2,12 +2,22 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import * as cookie from 'cookie';
 
+/**
+ * Create a supabase admin client
+ * @returns the admin client
+ */
 export function supabaseAdmin() {
   const url = process.env.SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+/**
+ * Create a supabase server client
+ * @param request the request
+ * @param responseHeaders the response headers
+ * @returns the server client
+ */
 export function supabaseServer(request: Request, responseHeaders: Headers) {
   const url = process.env.SUPABASE_URL!;
   const anon = process.env.SUPABASE_ANON_KEY!;
@@ -40,6 +50,7 @@ export function supabaseServer(request: Request, responseHeaders: Headers) {
     responseHeaders.append('set-cookie', serialized);
   };
 
+  // create the server client (deprecated, but works)
   return createServerClient(url, anon, {
     cookies: {
       get: getCookie,

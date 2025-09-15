@@ -15,6 +15,7 @@ import {
 import { supabaseServer } from '~/utils/supabase.server';
 import type { Route } from './+types/root';
 
+// triggered when the page is loaded to get the user
 export async function loader({ request }: LoaderFunctionArgs) {
   const supa = supabaseServer(request, new Headers());
   const {
@@ -25,6 +26,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   } as const;
 }
 
+// head stuff (boilerplate)
 export const links: Route.LinksFunction = () => [
   { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
   {
@@ -38,6 +40,7 @@ export const links: Route.LinksFunction = () => [
   },
 ];
 
+// layout component (head, body, etc) (boilerplate)
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -56,6 +59,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+// app component (main component) whole app
 export default function App() {
   const data = useLoaderData<{ user: { id: string; email: string | null } | null }>();
   return (
@@ -83,6 +87,7 @@ export default function App() {
   );
 }
 
+// error boundary (boilerplate)
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   let message = 'Oops!';
   let details = 'An unexpected error occurred.';

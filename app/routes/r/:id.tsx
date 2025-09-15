@@ -5,6 +5,8 @@ import { supabaseAdmin } from "~/utils/supabase.server";
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id!;
   const supa = supabaseAdmin();
+
+  // get the link
   const { data, error } = await supa.from("links").select("original").eq("id", id).single();
   if (error || !data) throw new Response("Not found", { status: 404 });
 
@@ -16,7 +18,9 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     ? Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip))).toString("hex").slice(0,32)
     : null;
 
+  // log click
   supa.from("click_events").insert({ link_id: id, ua, referer, ip_hash: ipHash ?? undefined }).then(() => {});
 
+  // redirect that ish
   return redirect(data.original, { status: 302 });
 }

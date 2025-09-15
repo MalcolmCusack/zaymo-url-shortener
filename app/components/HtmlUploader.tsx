@@ -12,6 +12,7 @@ export default function HtmlUploader({ nameFile = 'html', nameTextarea = 'pasted
   const [bytes, setBytes] = useState<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // create the text encoder
   const enc = useMemo(() => new TextEncoder(), []);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {

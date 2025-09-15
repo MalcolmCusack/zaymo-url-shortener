@@ -9,6 +9,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = String(form.get('intent') || 'signin');
   const email = String(form.get('email') || '');
   const password = String(form.get('password') || '');
+  
   if (!email || !password) return { error: 'Email and password are required' } satisfies ActionData;
 
   const headers = new Headers();

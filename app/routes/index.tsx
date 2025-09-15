@@ -5,19 +5,35 @@ import { Form, useActionData, useLoaderData, useNavigation,  type ActionFunction
 import HtmlUploader from '~/components/HtmlUploader';
 import CopyButton from '~/components/CopyButton';
 
+type LoaderData = { 
+  recent: { 
+    id: number; 
+    filename: string; 
+    created_at: string; 
+    link_count: number; 
+    bytes_in: number; 
+    bytes_out: number 
+  }[] 
+};
+
+// triggered when the Form is submitted via de button
 export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
   const file = form.get('html') as File | null;
   const pasted = form.get('pasted') as string | null;
+
+  // check if there is a file or pasted html
   const hasFile = file && file.size > 0;
+  // get the filename from the file or pasted html, max 160 characters
   const filename = ((hasFile ? file!.name : 'pasted.html') || 'pasted.html').slice(0, 160);
   const html = hasFile ? await file!.text() : (pasted || '');
 
   if (!html.trim()) return { error: 'No HTML provided' };
 
+  // load the html into cheerio (parse/manipulate the html)
   const $ = cheerio.load(html);
 
-  // collect unique http(s) anchor hrefs
+  // collect unique http(s) anchor hrefs (links)
   const hrefs = new Set<string>();
   $('a[href]').each((_i, el) => {
     const href = String($(el).attr('href') || '');
@@ -25,6 +41,7 @@ export async function action({ request }: ActionFunctionArgs) {
   });
 
   const headers = new Headers();
+  // get supabase user if signed in
   const supa = supabaseServer(request, headers);
   const { data: userData } = await supa.auth.getUser();
   // create job
@@ -38,7 +55,7 @@ export async function action({ request }: ActionFunctionArgs) {
       bytes_in: bytesIn,
       bytes_out: 0,
       link_count: hrefs.size,
-      created_by: userData.user?.id ?? null,
+      created_by: userData?.user?.id ?? null,
     })
     .select('*')
     .single();
@@ -49,22 +66,27 @@ export async function action({ request }: ActionFunctionArgs) {
   // TODO: this is a hack to get the short domain. It's not ideal because it's not a static domain.
   const reqOrigin = new URL(request.url).origin;
   let shortDomain = (process.env.SHORT_DOMAIN || reqOrigin).trim();
+
+  // if the short domain doesn't start with https://, add it
   if (!/^https?:\/\//i.test(shortDomain)) shortDomain = `https://${shortDomain}`; 
   shortDomain = shortDomain.replace(/\/+$/, '');
 
-  // create links + mapping
+  // create links + mapping for each link
   const map = new Map<string, string>();
   for (const original of hrefs) {
     let id = randomId(8);
+    // try to insert the link 3 times if it fails
     for (let i = 0; i < 3; i++) {
       const { error } = await supa.from('links').insert({ id, original, created_by: userData.user?.id ?? null });
       if (!error) break;
       id = randomId(8);
     }
 
+    // create the short link
     const short = `${shortDomain}/r/${id}`;
     map.set(original, short);
 
+    // create the mapping from the job to the link
     await supa.from('html_links').insert({
       job_id: job.id,
       link_id: id,
@@ -72,34 +94,44 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  // rewrite DOM
+  // rewrite DOM (replace the hrefs with the short links)
   $('a[href]').each((_i, el) => {
     const href = String($(el).attr('href') || '');
     const short = map.get(href);
     if (short) $(el).attr('href', short);
   });
 
+  // get the html of the document
   const outHtml = $.html();
+  // get the bytes of the html
   const bytesOut = enc.encode(outHtml).length;
 
-  // update job stats
+  // update job stats (bytes_out)
   await supa.from('html_jobs').update({
       bytes_out: bytesOut,
+      created_by: userData?.user?.id ?? null,
   }).eq('id', job.id);
 
+  // create the links array
   const links = Array.from(map.entries()).map(([original, short]) => ({ original, short }));
+  // calculate the saved bytes
   const saved = bytesIn - bytesOut;
 
+  // return the data
   return { filename, bytesIn, bytesOut, saved, links, outHtml };
 }
 
 type ActionData = Awaited<ReturnType<typeof action>>;
 
+// triggered when the page is loaded
 export async function loader({ request }: { request: Request }) {
   const headers = new Headers();
   const supa = supabaseServer(request, headers);
   const { data: userData } = await supa.auth.getUser();
+
   let recent: { id: number; filename: string; created_at: string; link_count: number; bytes_in: number; bytes_out: number }[] = [];
+
+  // get the recent jobs if the user is signed in
   if (userData.user) {
     const { data, error } = await supa
       .from('html_jobs')
@@ -107,12 +139,12 @@ export async function loader({ request }: { request: Request }) {
       .eq('created_by', userData.user.id)
       .order('created_at', { ascending: false })
       .limit(5);
+
     if (!error && data) recent = data as unknown as typeof recent;
   }
+
   return new Response(JSON.stringify({ recent }), { headers: { ...Object.fromEntries(headers), 'content-type': 'application/json' } });
 }
-
-type LoaderData = { recent: { id: number; filename: string; created_at: string; link_count: number; bytes_in: number; bytes_out: number }[] };
 
 export default function Index() {
   const data = useActionData<ActionData>();
