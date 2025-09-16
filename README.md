@@ -106,19 +106,11 @@ Auth: Supabase Auth; see `app/root.tsx` and `app/utils/supabase.server.ts`.
 - Per‑day link creation limits (e.g., 5,000/user/day).
 - Basic rate limiting on the action (IP-based or user-based).
 
-### Edge‑optimize redirects (scale path)
-
-Goal: eliminate DB hop on every `/r/:id` request.
-- Add Vercel KV (or Upstash Redis). Key: `link:<id>` → original.
-- On link creation, write to KV in addition to Postgres.
-- On `/r/:id` loader:
-  1. get from KV → if found, redirect.
-  2. else fallback to Supabase, then populate KV.
-
 ### Nice to have extras
 - QR code generator per short link (PNG in public/qr/:id.png)
 - Organization/workspace model with usage quotas $$$
 - Dark/Light mode
+- Logging
 
 ## Scripts
 

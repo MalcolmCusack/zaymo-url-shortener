@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 
-const MAX_HTML_BYTES = Number(process.env.MAX_HTML_BYTES || String(5 * 1024 * 1024)); // default 5 MiB
+// const MAX_HTML_BYTES = Number(process.env.MAX_HTML_BYTES || String(5 * 1024 * 1024)); // default 5 MiB
 
 type Props = {
   nameFile?: string;
@@ -34,7 +34,7 @@ export default function HtmlUploader({ nameFile = 'html', nameTextarea = 'pasted
     accept: { 'text/html': ['.html', '.htm'] },
     multiple: false,
     onDrop,
-    maxSize: MAX_HTML_BYTES,
+    // maxSize: MAX_HTML_BYTES,
     maxFiles: 1,
     onError: (error) => {
       console.error(error);
